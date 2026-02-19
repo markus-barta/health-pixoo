@@ -62,7 +62,7 @@ function connect(onReady) {
     client.subscribe(topics, (err) => {
       if (err) logger.error('MQTT subscribe error', { err: err.message });
       else logger.ok('MQTT subscribed', { count: topics.length });
-      if (onReady) onReady();
+      if (onReady) onReady(client);
     });
   });
 
