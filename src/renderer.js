@@ -185,14 +185,16 @@ async function renderOverview(pixoo) {
     dot(pixoo, 22 + i * 7, 15, healthColor(h));
   }
 
-  // Services row
-  await pixoo.drawTextRgbaAligned('SVC ', [0, 22], PAL.dimWhite, 'left');
-  const svcKeys = Object.keys(state.services);
+  // Services row — dot + 2-char label, spaced at 14px each
+  // Layout: SVC[0,22] | dot+MQ[22] | dot+NR[36] | dot+HA[50]
+  await pixoo.drawTextRgbaAligned('SVC', [0, 22], PAL.dimWhite, 'left');
+  const svcKeys   = Object.keys(state.services);
+  const svcShort  = ['MQ', 'NR', 'HA'];
   for (let i = 0; i < svcKeys.length; i++) {
     const svc   = state.services[svcKeys[i]];
     const color = svc.alive ? PAL.ok : PAL.bad;
     dot(pixoo, 22 + i * 14, 22, color);
-    await pixoo.drawTextRgbaAligned(svcKeys[i], [27 + i * 14, 22], PAL.dimGrey, 'left');
+    await pixoo.drawTextRgbaAligned(svcShort[i] || svcKeys[i].slice(0,2), [27 + i * 14, 22], PAL.dimGrey, 'left');
   }
 
   separator(pixoo, 28);
