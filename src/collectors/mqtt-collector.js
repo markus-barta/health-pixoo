@@ -40,6 +40,11 @@ function connect(onReady) {
       .filter(d => d.type === 'shelly-gen1')
       .map(d => d.mqttTopic.replace('/info', '/online'));
 
+    // Shelly wildcard topics — catch any publish as "alive" for devices that don't send /online
+    const shellyWildcards = config.wifi
+      .filter(d => d.type === 'shelly-gen1')
+      .map(d => d.mqttTopic.replace('/info', '/#'));
+
     // Tado bridge input (for heat chain)
     const tadoInput = ['shellies/wc/shelly1-tado-bridge/input/0'];
 
@@ -53,6 +58,7 @@ function connect(onReady) {
     const topics = [
       ...shellyInfoTopics,
       ...shellyOnlineTopics,
+      ...shellyWildcards,
       ...tadoInput,
       ...z2mAvail,
       ...z2mState,
@@ -92,6 +98,16 @@ function handleMessage(topic, raw) {
       state.wifi[wifiOnline.label].online = raw === 'true';
       state.wifi[wifiOnline.label].lastSeen = new Date();
       return;
+    }
+
+    // --- Shelly Gen1 wildcard — any subtopic means device is alive
+    const wifiAny = config.wifi.find(
+      d => d.type === 'shelly-gen1' && topic.startsWith(d.mqttTopic.replace('/info', '/'))
+    );
+    if (wifiAny && !state.wifi[wifiAny.label].online) {
+      state.wifi[wifiAny.label].online = true;
+      state.wifi[wifiAny.label].lastSeen = new Date();
+      logger.debug('Shelly alive via wildcard', { label: wifiAny.label, topic });
     }
 
     // --- Shelly Gen1 /info (full status JSON with RSSI)

@@ -66,11 +66,23 @@ async function pollServices() {
   }
 }
 
+function checkStaleDevices() {
+  const STALE_MS = 5 * 60 * 1000; // 5 min
+  const now = Date.now();
+  for (const [label, s] of Object.entries(state.wifi)) {
+    if (s.lastSeen && s.online && (now - s.lastSeen.getTime()) > STALE_MS) {
+      logger.warn('Shelly went stale', { label, lastSeen: s.lastSeen });
+      state.wifi[label].online = false;
+    }
+  }
+}
+
 function start() {
   pollRpc();
   pollServices();
-  setInterval(pollRpc,      config.rpcIntervalMs);
-  setInterval(pollServices, config.rpcIntervalMs);
+  setInterval(pollRpc,           config.rpcIntervalMs);
+  setInterval(pollServices,      config.rpcIntervalMs);
+  setInterval(checkStaleDevices, 60000);
   logger.info('RPC/service collector started', { interval: config.rpcIntervalMs });
 }
 
