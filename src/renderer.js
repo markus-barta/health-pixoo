@@ -64,11 +64,12 @@ async function gradientBar(pixoo, x, y, w, h, darkColor, brightColor) {
 }
 
 // Bar showing signal level (0.0–1.0) against empty background
+// Top row is darker (drop shadow effect)
 async function signalBar(pixoo, x, y, totalW, h, level, health) {
   const filled = Math.round(level * totalW);
   const [dark, bright] = healthBarGrad(health);
 
-  // Empty background (dark grey scanline feel)
+  // Empty background (dark grey)
   for (let i = 0; i < totalW; i++) {
     for (let row = 0; row < h; row++) {
       pixoo._setPixel(x + i, y + row, 18, 18, 18);
@@ -77,6 +78,13 @@ async function signalBar(pixoo, x, y, totalW, h, level, health) {
   // Filled portion
   if (filled > 0) {
     await gradientBar(pixoo, x, y, filled, h, dark, bright);
+    // Drop shadow: darken top row of filled bar
+    for (let i = 0; i < filled; i++) {
+      const idx = ((y) * 64 + (x + i)) * 3;
+      pixoo.buf[idx]     = Math.round(pixoo.buf[idx]     * 0.4);
+      pixoo.buf[idx + 1] = Math.round(pixoo.buf[idx + 1] * 0.4);
+      pixoo.buf[idx + 2] = Math.round(pixoo.buf[idx + 2] * 0.4);
+    }
   }
 }
 
@@ -117,21 +125,20 @@ function ambientGlow(pixoo, startY, health) {
   applyScanlines(pixoo, startY, 64, 0.25);
 }
 
-// Custom 4×5px checkmark (thick, readable at small size)
+// Custom checkmark — user spec:
+//   . X .
+//   X . X  (row 0)
+//   . X .  (row 1 — middle)
+// 3×3 pixel shape, 1px wide
 function drawCheckmark(pixoo, x, y, color) {
   const [r, g, b] = color;
-  // Tick shape: left side goes down, right side goes up
-  // Row offsets: (col, row) pairs that are ON
-  const pixels = [
-    [0,3],[0,4],
-    [1,2],[1,3],
-    [2,1],[2,2],
-    [3,0],[3,1],
-  ];
-  for (const [dx, dy] of pixels) {
-    pixoo._setPixel(x + dx, y + dy, r, g, b);
-    pixoo._setPixel(x + dx, y + dy - 1, r, g, b); // 2px thick
-  }
+  //   row0: col1
+  //   row1: col0, col2
+  //   row2: col1
+  pixoo._setPixel(x + 1, y,     r, g, b);
+  pixoo._setPixel(x,     y + 1, r, g, b);
+  pixoo._setPixel(x + 2, y + 1, r, g, b);
+  pixoo._setPixel(x + 1, y + 2, r, g, b);
 }
 
 // Custom 4×5px X mark
@@ -152,11 +159,23 @@ function separator(pixoo, y) {
   }
 }
 
-// Small status dot (3×3)
+// Small status dot (3×3) with subtle 3D effect
+// top-left brighter, bottom-right darker
 function dot(pixoo, x, y, color) {
+  const [r, g, b] = color;
   for (let dy = 0; dy < 3; dy++) {
     for (let dx = 0; dx < 3; dx++) {
-      pixoo._blendPixel(x + dx, y + dy, ...color);
+      // highlight top-left corner
+      const isHighlight = dx === 0 && dy === 0;
+      // shadow bottom-right corner
+      const isShadow    = dx === 2 && dy === 2;
+      const factor = isHighlight ? 1.4 : (isShadow ? 0.5 : 1.0);
+      pixoo._setPixel(
+        x + dx, y + dy,
+        Math.min(255, Math.round(r * factor)),
+        Math.min(255, Math.round(g * factor)),
+        Math.min(255, Math.round(b * factor)),
+      );
     }
   }
 }
@@ -194,7 +213,7 @@ async function renderOverview(pixoo) {
   const health = overallHealth();
 
   // Header
-  await drawHeader(pixoo, 'HAUS', 0, 0);
+  await drawHeader(pixoo, 'HOME', 0, 0);
   await drawClock(pixoo, 63, 0);
 
   // WLAN row — 6 dots
@@ -213,16 +232,15 @@ async function renderOverview(pixoo) {
     dot(pixoo, 22 + i * 7, 15, healthColor(h));
   }
 
-  // Services row — dot + 2-char label, spaced at 14px each
-  // Layout: SVC[0,22] | dot+MQ[22] | dot+NR[36] | dot+HA[50]
-  await pixoo.drawTextRgbaAligned('SVC', [0, 22], PAL.dimWhite, 'left');
+  // Services row — dot + 2-char label, spaced at 14px each (+1px down)
+  await pixoo.drawTextRgbaAligned('SVC', [0, 23], PAL.dimWhite, 'left');
   const svcKeys   = Object.keys(state.services);
   const svcShort  = ['MQ', 'NR', 'HA'];
   for (let i = 0; i < svcKeys.length; i++) {
     const svc   = state.services[svcKeys[i]];
     const color = svc.alive ? PAL.ok : PAL.bad;
-    dot(pixoo, 22 + i * 14, 22, color);
-    await pixoo.drawTextRgbaAligned(svcShort[i] || svcKeys[i].slice(0,2), [27 + i * 14, 22], PAL.dimGrey, 'left');
+    dot(pixoo, 22 + i * 14, 23, color);
+    await pixoo.drawTextRgbaAligned(svcShort[i] || svcKeys[i].slice(0,2), [27 + i * 14, 23], PAL.dimGrey, 'left');
   }
 
   separator(pixoo, 28);
@@ -231,7 +249,7 @@ async function renderOverview(pixoo) {
   const boilerOk   = state.boiler.state === 'ok';
   const boilerCol  = boilerOk ? PAL.ok : PAL.bad;
   const tempStr    = state.boiler.tempC !== null ? `${Math.round(state.boiler.tempC)}C` : '---';
-  await pixoo.drawTextRgbaAligned('BOI', [0, 30], PAL.dimWhite, 'left');
+  await pixoo.drawTextRgbaAligned('Boiler', [0, 30], PAL.dimWhite, 'left');
   await pixoo.drawTextRgbaAligned(tempStr, [16, 30], PAL.amber, 'left');
   if (boilerOk) drawCheckmark(pixoo, 36, 29, PAL.ok);
   else await pixoo.drawTextRgbaAligned('!', [37, 30], PAL.bad, 'left');
@@ -239,7 +257,7 @@ async function renderOverview(pixoo) {
   // Heating summary row 2: floor heating chain
   const chainOk  = state.heatChain.state !== 'mismatch';
   const chainCol = chainOk ? PAL.ok : PAL.bad;
-  await pixoo.drawTextRgbaAligned('BODEN', [0, 37], PAL.dimWhite, 'left');
+  await pixoo.drawTextRgbaAligned('FBH-WC', [0, 37], PAL.dimWhite, 'left');
   const chainDisp = state.heatChain.state === 'unknown' ? '?' : (chainOk ? 'OK' : 'FEHLER');
   await pixoo.drawTextRgbaAligned(chainDisp, [24, 37], chainOk ? PAL.ok : PAL.bad, 'left');
   if (chainOk && state.heatChain.state !== 'unknown') drawCheckmark(pixoo, 36, 36, PAL.ok);
@@ -264,7 +282,7 @@ async function renderWlan(pixoo) {
     // Label (5 chars max)
     await pixoo.drawTextRgbaAligned(dev.label, [0, y], PAL.dimWhite, 'left');
 
-    // Signal bar — start at x=25 (4px gap after label), width 24
+    // Signal bar — start at x=25 (4px gap after label), width 24, +1px down
     const barX = 25;
     const barW = 24;
     let level  = 0;
@@ -276,7 +294,7 @@ async function renderWlan(pixoo) {
         level = 1.0;  // ping-only and alive = full bar
       }
     }
-    await signalBar(pixoo, barX, y, barW, 3, level, h);
+    await signalBar(pixoo, barX, y + 1, barW, 3, level, h);
 
     // Value label
     let valStr;
@@ -310,7 +328,7 @@ async function renderZigbee(pixoo) {
     const level = s.available && s.lqi !== null
       ? Math.min(1, s.lqi / 255)
       : 0;
-    await signalBar(pixoo, barX, y, barW, 3, level, h);
+    await signalBar(pixoo, barX, y + 1, barW, 3, level, h);
 
     let valStr;
     if (!s.available) {
@@ -350,7 +368,7 @@ async function renderHeizung(pixoo) {
   const chainColor = chainState === 'ok' ? PAL.ok : (chainState === 'unknown' ? PAL.warn : PAL.bad);
   const chainStr   = chainState === 'ok' ? 'OK' : (chainState === 'mismatch' ? 'FEHLER' : '?');
 
-  await pixoo.drawTextRgbaAligned('BODEN', [0, 21], PAL.dimWhite, 'left');
+  await pixoo.drawTextRgbaAligned('FBH-WC', [0, 21], PAL.dimWhite, 'left');
   await pixoo.drawTextRgbaAligned(chainStr, [28, 21], chainColor, 'left');
 
   // Input/output state
@@ -367,7 +385,7 @@ async function renderHeizung(pixoo) {
   } else if (state.heatChain.checkedAt) {
     const t = state.heatChain.checkedAt;
     const timeStr = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
-    await pixoo.drawTextRgbaAligned(`geprueft: ${timeStr}`, [0, 36], PAL.dimGrey, 'left');
+    await pixoo.drawTextRgbaAligned(`Check: ${timeStr}`, [0, 36], PAL.dimGrey, 'left');
   }
 
   separator(pixoo, 43);
