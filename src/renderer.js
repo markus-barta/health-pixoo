@@ -125,20 +125,15 @@ function ambientGlow(pixoo, startY, health) {
   applyScanlines(pixoo, startY, 64, 0.25);
 }
 
-// Custom checkmark — user spec:
-//   . X .
-//   X . X  (row 0)
-//   . X .  (row 1 — middle)
-// 3×3 pixel shape, 1px wide
+// Custom checkmark — pixel offsets from start (x,y):
+// (0,0) (1,+1) (2,0) (3,-1)
+// Draws as a classic tick ✓ going down then back up
 function drawCheckmark(pixoo, x, y, color) {
   const [r, g, b] = color;
-  //   row0: col1
-  //   row1: col0, col2
-  //   row2: col1
-  pixoo._setPixel(x + 1, y,     r, g, b);
-  pixoo._setPixel(x,     y + 1, r, g, b);
-  pixoo._setPixel(x + 2, y + 1, r, g, b);
-  pixoo._setPixel(x + 1, y + 2, r, g, b);
+  pixoo._setPixel(x + 0, y + 0, r, g, b);
+  pixoo._setPixel(x + 1, y + 1, r, g, b);
+  pixoo._setPixel(x + 2, y + 0, r, g, b);
+  pixoo._setPixel(x + 3, y - 1, r, g, b);
 }
 
 // Custom 4×5px X mark
@@ -246,13 +241,28 @@ async function renderOverview(pixoo) {
   separator(pixoo, 28);
 
   // Heating summary row 1: Boiler
-  const boilerOk   = state.boiler.state === 'ok';
-  const boilerCol  = boilerOk ? PAL.ok : PAL.bad;
-  const tempStr    = state.boiler.tempC !== null ? `${Math.round(state.boiler.tempC)}C` : '---';
+  // "Boiler" = 6 chars × 4px = 24px → temp starts x=25
+  const boilerOk  = state.boiler.state === 'ok';
+  const boilerCol = boilerOk ? PAL.ok : PAL.bad;
   await pixoo.drawTextRgbaAligned('Boiler', [0, 30], PAL.dimWhite, 'left');
-  await pixoo.drawTextRgbaAligned(tempStr, [16, 30], PAL.amber, 'left');
-  if (boilerOk) drawCheckmark(pixoo, 36, 29, PAL.ok);
-  else await pixoo.drawTextRgbaAligned('!', [37, 30], PAL.bad, 'left');
+
+  if (state.boiler.tempC !== null) {
+    const tempVal = `${Math.round(state.boiler.tempC)}`;
+    // tempVal width: chars × 4px - 1 (no trailing spacing)
+    const tempW = tempVal.length * 4 - 1;
+    await pixoo.drawTextRgbaAligned(tempVal, [25, 30], PAL.amber, 'left');
+    // degree: 1px dot, 50% opacity amber, 1px after tempVal
+    const degX = 25 + tempW + 1;
+    pixoo._blendPixel(degX, 30, 255, 160, 0, 128); // 50% amber
+    // "C" 1px after degree dot
+    await pixoo.drawTextRgbaAligned('C', [degX + 2, 30], PAL.amber, 'left');
+    // checkmark/alert after "C" (C=3px wide + 1px gap = 4px)
+    const markX = degX + 2 + 4;
+    if (boilerOk) drawCheckmark(pixoo, markX, 31, PAL.ok);
+    else          await pixoo.drawTextRgbaAligned('!', [markX, 30], PAL.bad, 'left');
+  } else {
+    await pixoo.drawTextRgbaAligned('---', [25, 30], PAL.dimGrey, 'left');
+  }
 
   // Heating summary row 2: floor heating chain
   const chainOk  = state.heatChain.state !== 'mismatch';
@@ -351,9 +361,19 @@ async function renderHeizung(pixoo) {
   const nrStr     = state.boiler.nrRunning === true ? 'OK' : (state.boiler.nrRunning === false ? 'ERR' : '?');
   const boilerCol = state.boiler.state === 'ok' ? PAL.ok : (state.boiler.state === 'unknown' ? PAL.warn : PAL.bad);
 
+  // "BOILER" = 6 chars × 4px = 24px → temp at x=28
   await pixoo.drawTextRgbaAligned('BOILER', [0, 8], PAL.dimWhite, 'left');
-  await pixoo.drawTextRgbaAligned(`${tempStr}C`, [28, 8], PAL.amber, 'left');
-  await pixoo.drawTextRgbaAligned(`NR:${nrStr}`, [44, 8], boilerCol, 'left');
+  if (state.boiler.tempC !== null) {
+    const tempW = tempStr.length * 4 - 1;
+    await pixoo.drawTextRgbaAligned(tempStr, [28, 8], PAL.amber, 'left');
+    const degX = 28 + tempW + 1;
+    pixoo._blendPixel(degX, 8, 255, 160, 0, 128); // degree dot 50% opacity
+    await pixoo.drawTextRgbaAligned('C', [degX + 2, 8], PAL.amber, 'left');
+    await pixoo.drawTextRgbaAligned(`NR:${nrStr}`, [degX + 7, 8], boilerCol, 'left');
+  } else {
+    await pixoo.drawTextRgbaAligned('---', [28, 8], PAL.dimGrey, 'left');
+    await pixoo.drawTextRgbaAligned(`NR:${nrStr}`, [44, 8], boilerCol, 'left');
+  }
 
   // Boiler status bar (temperature visualisation, 0–80°C)
   if (state.boiler.tempC !== null) {
