@@ -117,6 +117,34 @@ function ambientGlow(pixoo, startY, health) {
   applyScanlines(pixoo, startY, 64, 0.25);
 }
 
+// Custom 4×5px checkmark (thick, readable at small size)
+function drawCheckmark(pixoo, x, y, color) {
+  const [r, g, b] = color;
+  // Tick shape: left side goes down, right side goes up
+  // Row offsets: (col, row) pairs that are ON
+  const pixels = [
+    [0,3],[0,4],
+    [1,2],[1,3],
+    [2,1],[2,2],
+    [3,0],[3,1],
+  ];
+  for (const [dx, dy] of pixels) {
+    pixoo._setPixel(x + dx, y + dy, r, g, b);
+    pixoo._setPixel(x + dx, y + dy - 1, r, g, b); // 2px thick
+  }
+}
+
+// Custom 4×5px X mark
+function drawCross(pixoo, x, y, color) {
+  const [r, g, b] = color;
+  for (let i = 0; i < 5; i++) {
+    pixoo._setPixel(x + i,     y + i,     r, g, b);
+    pixoo._setPixel(x + i + 1, y + i,     r, g, b);
+    pixoo._setPixel(x + 4 - i, y + i,     r, g, b);
+    pixoo._setPixel(x + 3 - i, y + i,     r, g, b);
+  }
+}
+
 // Thin separator line
 function separator(pixoo, y) {
   for (let x = 0; x < 64; x++) {
@@ -201,21 +229,20 @@ async function renderOverview(pixoo) {
 
   // Heating summary row 1: Boiler
   const boilerOk   = state.boiler.state === 'ok';
-  const boilerMark = boilerOk ? '\u2713' : '!';   // ✓ or !
   const boilerCol  = boilerOk ? PAL.ok : PAL.bad;
   const tempStr    = state.boiler.tempC !== null ? `${Math.round(state.boiler.tempC)}C` : '---';
   await pixoo.drawTextRgbaAligned('BOI', [0, 30], PAL.dimWhite, 'left');
   await pixoo.drawTextRgbaAligned(tempStr, [16, 30], PAL.amber, 'left');
-  await pixoo.drawTextRgbaAligned(boilerMark, [37, 30], boilerCol, 'left');
+  if (boilerOk) drawCheckmark(pixoo, 36, 29, PAL.ok);
+  else await pixoo.drawTextRgbaAligned('!', [37, 30], PAL.bad, 'left');
 
-  // Heating summary row 2: WC chain
-  const chainOk   = state.heatChain.state !== 'mismatch';
-  const chainMark = chainOk ? '\u2713' : '!';
-  const chainCol  = chainOk ? PAL.ok : PAL.bad;
-  await pixoo.drawTextRgbaAligned('WC ', [0, 37], PAL.dimWhite, 'left');
-  const chainState = state.heatChain.state === 'unknown' ? '?' : (chainOk ? 'SYNC' : 'MISS');
-  await pixoo.drawTextRgbaAligned(chainState, [16, 37], chainOk ? PAL.ok : PAL.bad, 'left');
-  await pixoo.drawTextRgbaAligned(chainMark, [37, 37], chainCol, 'left');
+  // Heating summary row 2: floor heating chain
+  const chainOk  = state.heatChain.state !== 'mismatch';
+  const chainCol = chainOk ? PAL.ok : PAL.bad;
+  await pixoo.drawTextRgbaAligned('BODEN', [0, 37], PAL.dimWhite, 'left');
+  const chainDisp = state.heatChain.state === 'unknown' ? '?' : (chainOk ? 'OK' : 'FEHLER');
+  await pixoo.drawTextRgbaAligned(chainDisp, [24, 37], chainOk ? PAL.ok : PAL.bad, 'left');
+  if (chainOk && state.heatChain.state !== 'unknown') drawCheckmark(pixoo, 36, 36, PAL.ok);
 
   separator(pixoo, 43);
 
@@ -237,8 +264,9 @@ async function renderWlan(pixoo) {
     // Label (5 chars max)
     await pixoo.drawTextRgbaAligned(dev.label, [0, y], PAL.dimWhite, 'left');
 
-    // Signal bar (width 28, height 3, x=21)
-    const barW = 28;
+    // Signal bar — start at x=25 (4px gap after label), width 24
+    const barX = 25;
+    const barW = 24;
     let level  = 0;
     if (s.online) {
       if (s.rssi !== null) {
@@ -248,7 +276,7 @@ async function renderWlan(pixoo) {
         level = 1.0;  // ping-only and alive = full bar
       }
     }
-    await signalBar(pixoo, 21, y, barW, 3, level, h);
+    await signalBar(pixoo, barX, y, barW, 3, level, h);
 
     // Value label
     let valStr;
@@ -277,11 +305,12 @@ async function renderZigbee(pixoo) {
 
     await pixoo.drawTextRgbaAligned(dev.label, [0, y], PAL.dimWhite, 'left');
 
-    const barW = 28;
+    const barX = 25;
+    const barW = 24;
     const level = s.available && s.lqi !== null
       ? Math.min(1, s.lqi / 255)
       : 0;
-    await signalBar(pixoo, 21, y, barW, 3, level, h);
+    await signalBar(pixoo, barX, y, barW, 3, level, h);
 
     let valStr;
     if (!s.available) {
@@ -316,13 +345,13 @@ async function renderHeizung(pixoo) {
 
   separator(pixoo, 19);
 
-  // Heat chain section
+  // Floor heating chain section
   const chainState = state.heatChain.state;
   const chainColor = chainState === 'ok' ? PAL.ok : (chainState === 'unknown' ? PAL.warn : PAL.bad);
-  const chainStr   = chainState === 'ok' ? 'SYNC' : (chainState === 'mismatch' ? 'MISS!' : '?');
+  const chainStr   = chainState === 'ok' ? 'OK' : (chainState === 'mismatch' ? 'FEHLER' : '?');
 
-  await pixoo.drawTextRgbaAligned('WC-KETTE', [0, 21], PAL.dimWhite, 'left');
-  await pixoo.drawTextRgbaAligned(chainStr, [40, 21], chainColor, 'left');
+  await pixoo.drawTextRgbaAligned('BODEN', [0, 21], PAL.dimWhite, 'left');
+  await pixoo.drawTextRgbaAligned(chainStr, [28, 21], chainColor, 'left');
 
   // Input/output state
   const inputStr  = state.heatChain.input0  === null ? '?' : (state.heatChain.input0 ? 'AN' : 'AUS');
@@ -332,13 +361,13 @@ async function renderHeizung(pixoo) {
   await pixoo.drawTextRgbaAligned('4PM:', [32, 28], PAL.dimGrey, 'left');
   await pixoo.drawTextRgbaAligned(outputStr, [52, 28], state.heatChain.output1 ? PAL.warn : PAL.ok, 'left');
 
-  // Mismatch warning
+  // Alert or last-check time
   if (chainState === 'mismatch') {
     await pixoo.drawTextRgbaAligned('HEIZUNG LAEUFT!', [0, 36], PAL.bad, 'left');
   } else if (state.heatChain.checkedAt) {
     const t = state.heatChain.checkedAt;
     const timeStr = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
-    await pixoo.drawTextRgbaAligned(`sync:${timeStr}`, [0, 36], PAL.dimGrey, 'left');
+    await pixoo.drawTextRgbaAligned(`geprueft: ${timeStr}`, [0, 36], PAL.dimGrey, 'left');
   }
 
   separator(pixoo, 43);
